@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"time"
 
 	"github.com/nikolaydubina/calendarheatmap/charts"
 	log "github.com/sirupsen/logrus"
@@ -9,17 +10,20 @@ import (
 )
 
 func main() {
-	log.SetLevel(log.DebugLevel)
 
-	apikey := os.Getenv("STRAVA_ACCESS")
-	if apikey == "" {
-		log.Fatal("Could not read API key from env: STRAVA_ACCESS")
-		os.Exit(1)
-	}
-
-	counts, err := strava.GetActivities(apikey)
+	counts := make(map[string]int, 365)
+	date, err := time.Parse("2006-01-02", "2022-01-01")
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	i := 0
+	for date.Year() == 2022 {
+		if i%2 == 0 {
+			counts[date.Format("2006-01-02")] = i
+		}
+		date = date.Add(24 * time.Hour)
+		i++
 	}
 
 	cfg := strava.DefaultConfig

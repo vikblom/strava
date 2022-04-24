@@ -24,8 +24,8 @@ import (
 // curl -X POST https://www.strava.com/oauth/token \
 // -F client_id=YOURCLIENTID \
 // -F client_secret=YOURCLIENTSECRET \
-// -F grant_type=authorization_code
-// -F code=AUTHORIZATIONCODE \
+// -F grant_type=authorization_code \
+// -F code=AUTHORIZATIONCODE
 
 // If tokens expired
 // curl -X POST https://www.strava.com/oauth/token \
@@ -110,35 +110,44 @@ func GetAccessToken(apikey string) (string, error) {
 	return authResp.AccessToken, nil
 }
 
-func GetActivities(token string) error {
+func GetActivities(token string) (map[string]int, error) {
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 	}
 
 	params := map[string]string{
-		// "format":       "json",
-		// "onlyRealtime": "yes",
+		"per_page": "100",
 	}
-	resp, err := apiCall(http.MethodGet, "api/v3/activities", headers, params)
+	resp, err := apiCall(http.MethodGet, "/api/v3/athlete/activities", headers, params)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	// Decode JSON with some anon. structs.
 	activities := []struct {
-		Name      string
+		Name string
+		// Avoid elapsed_time since a training can be paused
+		// and resumed hours later.
+		Seconds   int `json:"moving_time"`
 		Distance  float64
 		StartDate time.Time `json:"start_date"` // UTC
+		Type      string
 	}{}
 	dec := json.NewDecoder(resp.Body)
 	err = dec.Decode(&activities)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	// Populate dict on form that charts expect.
+	counts := make(map[string]int, len(activities))
 	for _, v := range activities {
-		log.Infof("%+v\n", v)
+		log.Debugf("%+v\n", v)
+
+		key := v.StartDate.Format("2006-01-02")
+		pre := counts[key]
+		counts[key] = pre + v.Seconds/60
 	}
-	return nil
+	return counts, nil
 }
