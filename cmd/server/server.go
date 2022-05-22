@@ -8,6 +8,10 @@ import (
 	"github.com/vikblom/strava"
 )
 
+func handleHello(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintln(w, "HELLO WORLD")
+}
+
 func main() {
 
 	id, ok := os.LookupEnv("STRAVA_CLIENT_ID")
@@ -22,13 +26,20 @@ func main() {
 		return
 	}
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	app := strava.AppClient{
 		ID:     id,
 		Secret: secret,
 	}
+	_ = app
 
 	// TODO: Should be handleIndex that checks if we need to create, refresh or reuse tokens.
-	http.HandleFunc("/", app.HandleAuthApproval)
+	// http.HandleFunc("/", app.HandleAuthApproval)
+	http.HandleFunc("/", handleHello)
 
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":"+port, nil)
 }
