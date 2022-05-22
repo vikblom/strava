@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/nikolaydubina/calendarheatmap/charts"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -53,9 +53,38 @@ type oAuth2Response struct {
 type AppClient struct {
 	ID     string
 	Secret string
+	URL    string
+}
+
+func (app *AppClient) WriteChart(w http.ResponseWriter, r *http.Request) {
+
 }
 
 func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request) {
+
+	access, err := r.Cookie("access-token")
+	if err != nil {
+		log.Errorf("err: %v", err)
+	} else {
+		log.Infof("access: %v", access.Value)
+
+		// TMP HACK
+		counts, err := GetActivities(access.Value)
+		if err != nil {
+			log.Errorf("GetActivities: %v", err)
+			return
+		}
+
+		cfg := DefaultConfig
+		cfg.Counts = counts
+
+		err = charts.WriteHeatmap(cfg, w)
+		if err != nil {
+			log.Errorf("WriteHeatmap: %v", err)
+		}
+		return
+	}
+
 	q := r.URL.Query()
 	if q.Has("code") {
 		log.Infof("oauth code: %v", q.Get("code"))
@@ -88,15 +117,36 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 		log.Infof("access token: %s", tokenResp.AccessToken)
 		log.Infof("refresh token: %s", tokenResp.RefreshToken)
 
-	} else {
+		// TODO: Use gorilla securecookie or similar.
+		http.SetCookie(w, &http.Cookie{
+			Name:     "access-token",
+			Value:    tokenResp.AccessToken,
+			HttpOnly: true,
+		})
+		http.SetCookie(w, &http.Cookie{
+			Name:     "refresh-token",
+			Value:    tokenResp.RefreshToken,
+			HttpOnly: true,
+		})
 
-		srvAddr := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-		thisURL := &url.URL{
-			Scheme: "http", // TODO: Check request TLS state.
-			Host:   srvAddr.String(),
-			Path:   r.RequestURI,
+		// TMP HACK
+		counts, err := GetActivities(tokenResp.AccessToken)
+		if err != nil {
+			log.Errorf("GetActivities: %v", err)
+			return
 		}
-		log.Infof("auth will redirect back to: %s", thisURL.String())
+
+		cfg := DefaultConfig
+		cfg.Counts = counts
+
+		err = charts.WriteHeatmap(cfg, w)
+		if err != nil {
+			log.Errorf("WriteHeatmap: %v", err)
+		}
+		return
+
+	} else {
+		log.Infof("auth will redirect back to: %s", app.URL)
 
 		authURL := &url.URL{
 			Scheme: "https",
@@ -104,7 +154,7 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 			Path:   "/oauth/authorize",
 		}
 		q := authURL.Query()
-		q.Add("redirect_uri", thisURL.String()) // Back to this handler.
+		q.Add("redirect_uri", app.URL) // Back to this handler.
 		q.Add("client_id", app.ID)
 		q.Add("response_type", "code")
 		//q.Add("approval_prompt", "force")

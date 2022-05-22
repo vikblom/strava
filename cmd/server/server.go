@@ -26,6 +26,11 @@ func main() {
 		return
 	}
 
+	url := os.Getenv("URL")
+	if url == "" {
+		url = "http://localhost:8080"
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -34,12 +39,13 @@ func main() {
 	app := strava.AppClient{
 		ID:     id,
 		Secret: secret,
+		URL:    url,
 	}
 	_ = app
 
 	// TODO: Should be handleIndex that checks if we need to create, refresh or reuse tokens.
-	// http.HandleFunc("/", app.HandleAuthApproval)
-	http.HandleFunc("/", handleHello)
+	http.HandleFunc("/", app.HandleAuthApproval)
+	//http.HandleFunc("/", handleHello)
 
 	http.ListenAndServe(":"+port, nil)
 }
