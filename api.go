@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -61,6 +62,11 @@ func (app *AppClient) WriteChart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request) {
+
+	srvAddr := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	log.Infof("srv addr: %v", srvAddr.String())
+	log.Infof("is tls: %v", r.TLS == nil)
+	log.Infof("uri: %v", r.RequestURI)
 
 	access, err := r.Cookie("access-token")
 	if err != nil {
