@@ -24,7 +24,9 @@ var DefaultConfig = charts.HeatmapConfig{
 	Locale:             "sv_SE",
 	ShowWeekdays:       map[time.Weekday]bool{},
 
-	ColorScale: LinearColorscale(GRAY, STRAVA_ORANGE, 100),
+	// Bias the colorscale so that a high max (very long activity) does not shift
+	// everything else to gray.
+	ColorScale: BiasedColorscale(GRAY, STRAVA_ORANGE, 100),
 }
 
 func LinearColorscale(from, to color.RGBA, n int) charts.BasicColorScale {
@@ -45,4 +47,35 @@ func LinearColorscale(from, to color.RGBA, n int) charts.BasicColorScale {
 		}
 	}
 	return cs
+}
+
+// BiasedColorscale leans towards the "to" color.
+func BiasedColorscale(from, to color.RGBA, n int) charts.BasicColorScale {
+	// TODO
+	if n < 2 {
+		return nil
+	}
+	dr := float64(int(to.R) - int(from.R))
+	dg := float64(int(to.G) - int(from.G))
+	db := float64(int(to.B) - int(from.B))
+	cs := make(charts.BasicColorScale, n)
+	for i := 0; i < n; i++ {
+		cs[i] = color.RGBA{
+			R: from.R + round(dr*square(float64(i)/float64(n))),
+			G: from.G + round(dg*square(float64(i)/float64(n))),
+			B: from.B + round(db*square(float64(i)/float64(n))),
+			A: 255,
+		}
+	}
+	return cs
+}
+
+// round to nearest uint8, no bounds checking.
+func round(x float64) uint8 {
+	return uint8(math.Round(x))
+}
+
+// square f in magnitude, preserving sign.
+func square(f float64) float64 {
+	return math.Copysign(math.Sqrt(math.Abs(f)), f)
 }

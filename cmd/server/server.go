@@ -45,7 +45,6 @@ func main() {
 
 	// TODO: Should be handleIndex that checks if we need to create, refresh or reuse tokens.
 	http.HandleFunc("/", app.HandleAuthApproval)
-	//http.HandleFunc("/", handleHello)
 
 	http.ListenAndServe(":"+port, nil)
 }

@@ -274,8 +274,8 @@ func GetActivities(token string) (map[string]int, error) {
 		log.Debugf("%+v\n", v)
 
 		key := v.StartDate.Format("2006-01-02")
-		pre := counts[key]
-		counts[key] = pre + v.Seconds/60
+		// Multiple activities on the same day.
+		counts[key] += v.Seconds / 60
 	}
 	return counts, nil
 }
