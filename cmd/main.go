@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"time"
 
 	"github.com/nikolaydubina/calendarheatmap/charts"
 	log "github.com/sirupsen/logrus"
@@ -17,7 +18,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	counts, err := strava.GetActivities(apikey)
+	// Query within current year.
+	now := time.Now()
+	from := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	to := time.Date(now.Year(), 12, 31, 0, 0, 0, 0, now.Location())
+
+	counts, err := strava.GetActivities(apikey, from, to)
 	if err != nil {
 		log.Fatal(err)
 	}

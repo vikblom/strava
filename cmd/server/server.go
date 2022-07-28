@@ -5,12 +5,10 @@ import (
 	"net/http"
 	"os"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/vikblom/strava"
 )
-
-func handleHello(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "HELLO WORLD")
-}
 
 func main() {
 
@@ -46,5 +44,5 @@ func main() {
 	// TODO: Should be handleIndex that checks if we need to create, refresh or reuse tokens.
 	http.HandleFunc("/", app.HandleAuthApproval)
 
-	http.ListenAndServe(":"+port, nil)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

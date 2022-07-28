@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/nikolaydubina/calendarheatmap/charts"
@@ -63,6 +64,11 @@ func (app *AppClient) WriteChart(w http.ResponseWriter, r *http.Request) {
 
 func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request) {
 
+	// Query within current year.
+	now := time.Now()
+	from := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	to := time.Date(now.Year(), 12, 31, 0, 0, 0, 0, now.Location())
+
 	srvAddr := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	log.Infof("srv addr: %v", srvAddr.String())
 	log.Infof("is tls: %v", r.TLS == nil)
@@ -75,7 +81,7 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 		log.Infof("access: %v", access.Value)
 
 		// TMP HACK
-		counts, err := GetActivities(access.Value)
+		counts, err := GetActivities(access.Value, from, to)
 		if err != nil {
 			log.Errorf("GetActivities: %v", err)
 			return
@@ -136,7 +142,7 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 		})
 
 		// TMP HACK
-		counts, err := GetActivities(tokenResp.AccessToken)
+		counts, err := GetActivities(tokenResp.AccessToken, from, to)
 		if err != nil {
 			log.Errorf("GetActivities: %v", err)
 			return
@@ -238,44 +244,64 @@ func GetAccessToken(apikey string) (string, error) {
 	return authResp.AccessToken, nil
 }
 
-func GetActivities(token string) (map[string]int, error) {
+// Activities per response page, 200 is maximum in the API spec.
+const PER_PAGE = 100
+
+// GetActivities exhaustively in the after/before range.
+func GetActivities(token string, after, before time.Time) (map[string]int, error) {
+
+	// The output is aggregated in this map.
+	counts := make(map[string]int)
+
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 	}
 
-	params := map[string]string{
-		"per_page": "100",
-	}
-	resp, err := apiCall(http.MethodGet, "/api/v3/athlete/activities", headers, params)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	page := 0
+	for {
+		page++
 
-	// Decode JSON with some anon. structs.
-	activities := []struct {
-		Name string
-		// Avoid elapsed_time since a training can be paused
-		// and resumed hours later.
-		Seconds   int `json:"moving_time"`
-		Distance  float64
-		StartDate time.Time `json:"start_date"` // UTC
-		Type      string
-	}{}
-	dec := json.NewDecoder(resp.Body)
-	err = dec.Decode(&activities)
-	if err != nil {
-		return nil, err
+		params := map[string]string{
+			"page":     strconv.Itoa(page),
+			"per_page": strconv.Itoa(PER_PAGE),
+			"after":    strconv.Itoa(int(after.Unix())),
+			"before":   strconv.Itoa(int(before.Unix())),
+		}
+		resp, err := apiCall(http.MethodGet, "/api/v3/athlete/activities", headers, params)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		// Decode JSON with some anon. structs.
+		activities := []struct {
+			Name string
+			// Avoid elapsed_time since a training can be paused
+			// and resumed hours later.
+			Seconds   int `json:"moving_time"`
+			Distance  float64
+			StartDate time.Time `json:"start_date"` // UTC
+			Type      string
+		}{}
+		dec := json.NewDecoder(resp.Body)
+		err = dec.Decode(&activities)
+		if err != nil {
+			return nil, err
+		}
+		log.Debugf("Got %d activities\n", len(activities))
+
+		// Populate dict on form that charts expect.
+		for _, v := range activities {
+			// log.Debugf("%+v\n", v)
+
+			key := v.StartDate.Format("2006-01-02")
+			// Multiple activities on the same day.
+			counts[key] += v.Seconds / 60
+		}
+		if len(activities) < PER_PAGE {
+			break
+		}
 	}
 
-	// Populate dict on form that charts expect.
-	counts := make(map[string]int, len(activities))
-	for _, v := range activities {
-		log.Debugf("%+v\n", v)
-
-		key := v.StartDate.Format("2006-01-02")
-		// Multiple activities on the same day.
-		counts[key] += v.Seconds / 60
-	}
 	return counts, nil
 }
