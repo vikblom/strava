@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -55,7 +54,6 @@ type oAuth2Response struct {
 type AppClient struct {
 	ID     string
 	Secret string
-	URL    string
 }
 
 func (app *AppClient) WriteChart(w http.ResponseWriter, r *http.Request) {
@@ -69,18 +67,13 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 	from := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
 	to := time.Date(now.Year(), 12, 31, 0, 0, 0, 0, now.Location())
 
-	srvAddr := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-	log.Infof("srv addr: %v", srvAddr.String())
-	log.Infof("is tls: %v", r.TLS == nil)
-	log.Infof("uri: %v", r.RequestURI)
-
+	// Retrieve tokens, if possible.
 	access, err := r.Cookie("access-token")
 	if err != nil {
 		log.Errorf("err: %v", err)
 	} else {
-		log.Infof("access: %v", access.Value)
-
 		// TMP HACK
+		// With tokens, draw activities and return early.
 		counts, err := GetActivities(access.Value, from, to)
 		if err != nil {
 			log.Errorf("GetActivities: %v", err)
@@ -97,16 +90,37 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// No tokens, do the auth dance, then redirect back to this handler to try again.
 	q := r.URL.Query()
-	if q.Has("code") {
-		log.Infof("oauth code: %v", q.Get("code"))
+	// No "code" means start fresh.
+	if !q.Has("code") {
+		authURL := &url.URL{
+			Scheme: "https",
+			Host:   STRAVA_URL,
+			Path:   "/oauth/authorize",
+		}
+		q := authURL.Query()
+		// Back to this handler.
+		redirect := &url.URL{Scheme: "http", Host: r.Host, Path: r.URL.Path}
+		q.Add("redirect_uri", redirect.String())
+		q.Add("client_id", app.ID)
+		q.Add("response_type", "code")
+		q.Add("scope", "profile:read_all,activity:read_all")
+		authURL.RawQuery = q.Encode()
+
+		log.Infof("auth querying: %s", authURL.String())
+		http.Redirect(w, r, authURL.String(), http.StatusTemporaryRedirect)
+		// Will populate http://localhost:8080/foo?state=&code=692842f838edcad616a957a2eac80945bb97cae1&scope=read,activity:read_all,profile:read_all
+
+	} else {
+		// Populated "code" from Strava redirect, use it to get actual tokens.
 		// TODO: Double check scope.
 
 		tokenURL := &url.URL{Scheme: "https", Host: STRAVA_URL, Path: "/oauth/token"}
 
 		form := url.Values{}
 		form.Add("client_id", app.ID)
-		form.Add("client_secret", "00738b12bcc2ccd283a7aa11902aa8fe1a722514") // FIXME
+		form.Add("client_secret", app.Secret)
 		form.Add("grant_type", "authorization_code")
 		form.Add("code", q.Get("code"))
 
@@ -157,25 +171,6 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 		}
 		return
 
-	} else {
-		log.Infof("auth will redirect back to: %s", app.URL)
-
-		authURL := &url.URL{
-			Scheme: "https",
-			Host:   STRAVA_URL,
-			Path:   "/oauth/authorize",
-		}
-		q := authURL.Query()
-		q.Add("redirect_uri", app.URL) // Back to this handler.
-		q.Add("client_id", app.ID)
-		q.Add("response_type", "code")
-		//q.Add("approval_prompt", "force")
-		q.Add("scope", "profile:read_all,activity:read_all")
-		authURL.RawQuery = q.Encode()
-
-		log.Infof("auth querying: %s", authURL.String())
-		http.Redirect(w, r, authURL.String(), http.StatusTemporaryRedirect)
-		// Will populate http://localhost:8080/foo?state=&code=692842f838edcad616a957a2eac80945bb97cae1&scope=read,activity:read_all,profile:read_all
 	}
 }
 
