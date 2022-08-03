@@ -159,7 +159,8 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 		return
 
 	} else {
-		redirect := r.Host + r.URL.Path
+
+		redirect := &url.URL{Scheme: "http", Host: r.Host, Path: r.URL.Path}
 		log.Infof("auth will redirect back to: %s", redirect)
 
 		authURL := &url.URL{
@@ -168,7 +169,7 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 			Path:   "/oauth/authorize",
 		}
 		q := authURL.Query()
-		q.Add("redirect_uri", redirect) // Back to this handler.
+		q.Add("redirect_uri", redirect.String()) // Back to this handler.
 		q.Add("client_id", app.ID)
 		q.Add("response_type", "code")
 		//q.Add("approval_prompt", "force")
