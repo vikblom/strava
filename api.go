@@ -72,7 +72,9 @@ func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request)
 	srvAddr := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	log.Infof("srv addr: %v", srvAddr.String())
 	log.Infof("is tls: %v", r.TLS == nil)
+	log.Infof("url: %v", r.URL)
 	log.Infof("uri: %v", r.RequestURI)
+	log.Infof("host: %v", r.Host)
 
 	access, err := r.Cookie("access-token")
 	if err != nil {

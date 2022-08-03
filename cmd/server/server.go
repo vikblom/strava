@@ -10,6 +10,10 @@ import (
 	"github.com/vikblom/strava"
 )
 
+func handleDebug(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Hello, running in region: %s", os.Getenv("FLY_REGION"))
+}
+
 func main() {
 
 	id, ok := os.LookupEnv("STRAVA_CLIENT_ID")
@@ -24,14 +28,14 @@ func main() {
 		return
 	}
 
-	url := os.Getenv("URL")
-	if url == "" {
-		url = "http://localhost:8080"
-	}
-
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
+	}
+
+	url := os.Getenv("URL")
+	if url == "" {
+		url = "http://localhost:" + port
 	}
 
 	app := strava.AppClient{
@@ -43,6 +47,7 @@ func main() {
 
 	// TODO: Should be handleIndex that checks if we need to create, refresh or reuse tokens.
 	http.HandleFunc("/", app.HandleAuthApproval)
+	http.HandleFunc("/debug", handleDebug)
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
