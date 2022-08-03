@@ -33,15 +33,9 @@ func main() {
 		port = "8080"
 	}
 
-	url := os.Getenv("URL")
-	if url == "" {
-		url = "http://localhost:" + port
-	}
-
 	app := strava.AppClient{
 		ID:     id,
 		Secret: secret,
-		URL:    url,
 	}
 	_ = app
 
