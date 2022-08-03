@@ -39,8 +39,16 @@ func main() {
 	}
 	_ = app
 
+	fs, err := strava.StaticFiles()
+	if err != nil {
+		fmt.Println("Cannot find files in static/")
+		return
+	}
+
 	// TODO: Should be handleIndex that checks if we need to create, refresh or reuse tokens.
-	http.HandleFunc("/", app.HandleAuthApproval)
+	http.Handle("/", http.FileServer(http.FS(fs)))
+	http.HandleFunc("/chart.png", app.HandleChart)
+	http.HandleFunc("/auth", app.HandleAuth)
 	http.HandleFunc("/debug", handleDebug)
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))

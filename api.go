@@ -60,118 +60,115 @@ func (app *AppClient) WriteChart(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (app *AppClient) HandleAuthApproval(w http.ResponseWriter, r *http.Request) {
+func (app *AppClient) HandleChart(w http.ResponseWriter, r *http.Request) {
+
+	access, err := r.Cookie("access-token")
+	if err != nil {
+		// If not authenticated, draw an empty chart.
+		cfg := DefaultConfig
+		err = charts.WriteHeatmap(cfg, w)
+		if err != nil {
+			log.Errorf("write empty heatmap: %v", err)
+		}
+		return
+	}
 
 	// Query within current year.
 	now := time.Now()
 	from := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
 	to := time.Date(now.Year(), 12, 31, 0, 0, 0, 0, now.Location())
 
-	// Retrieve tokens, if possible.
-	access, err := r.Cookie("access-token")
+	counts, err := GetActivities(access.Value, from, to)
 	if err != nil {
-		log.Errorf("err: %v", err)
-	} else {
-		// TMP HACK
-		// With tokens, draw activities and return early.
-		counts, err := GetActivities(access.Value, from, to)
-		if err != nil {
-			log.Errorf("GetActivities: %v", err)
-			return
-		}
-
-		cfg := DefaultConfig
-		cfg.Counts = counts
-
-		err = charts.WriteHeatmap(cfg, w)
-		if err != nil {
-			log.Errorf("WriteHeatmap: %v", err)
-		}
+		log.Errorf("GetActivities: %v", err)
 		return
 	}
+
+	cfg := DefaultConfig
+	cfg.Counts = counts
+	err = charts.WriteHeatmap(cfg, w)
+	if err != nil {
+		log.Errorf("WriteHeatmap: %v", err)
+	}
+}
+
+func (app *AppClient) AuthInitialRedirectURL(r *http.Request) *url.URL {
+	authURL := &url.URL{
+		Scheme: "https",
+		Host:   STRAVA_URL,
+		Path:   "/oauth/authorize",
+	}
+	q := authURL.Query()
+	// Back to this handler.
+	redirect := &url.URL{Scheme: "http", Host: r.Host, Path: r.URL.Path}
+	q.Add("redirect_uri", redirect.String())
+	q.Add("client_id", app.ID)
+	q.Add("response_type", "code")
+	q.Add("scope", "profile:read_all,activity:read_all")
+	authURL.RawQuery = q.Encode()
+
+	log.Infof("auth querying: %s", authURL.String())
+	return authURL
+}
+
+func (app *AppClient) AuthRetrieveTokens(code string) (*oAuth2Response, error) {
+
+	tokenURL := &url.URL{Scheme: "https", Host: STRAVA_URL, Path: "/oauth/token"}
+
+	form := url.Values{}
+	form.Add("client_id", app.ID)
+	form.Add("client_secret", app.Secret)
+	form.Add("grant_type", "authorization_code")
+	form.Add("code", code)
+
+	resp, err := http.PostForm(tokenURL.String(), form)
+	if err != nil {
+		return nil, fmt.Errorf("token POST: %w", err)
+	}
+
+	// decode
+	var tokenResp oAuth2Response
+	err = json.NewDecoder(resp.Body).Decode(&tokenResp)
+	if err != nil {
+		return nil, fmt.Errorf("json decode: %w", err)
+	}
+	if tokenResp.ExpiresIn < 60 {
+		log.Error("token will expire in less than a minute")
+	}
+
+	return &tokenResp, nil
+}
+
+func (app *AppClient) HandleAuth(w http.ResponseWriter, r *http.Request) {
 
 	// No tokens, do the auth dance, then redirect back to this handler to try again.
 	q := r.URL.Query()
-	// No "code" means start fresh.
 	if !q.Has("code") {
-		authURL := &url.URL{
-			Scheme: "https",
-			Host:   STRAVA_URL,
-			Path:   "/oauth/authorize",
-		}
-		q := authURL.Query()
-		// Back to this handler.
-		redirect := &url.URL{Scheme: "http", Host: r.Host, Path: r.URL.Path}
-		q.Add("redirect_uri", redirect.String())
-		q.Add("client_id", app.ID)
-		q.Add("response_type", "code")
-		q.Add("scope", "profile:read_all,activity:read_all")
-		authURL.RawQuery = q.Encode()
-
-		log.Infof("auth querying: %s", authURL.String())
-		http.Redirect(w, r, authURL.String(), http.StatusTemporaryRedirect)
-		// Will populate http://localhost:8080/foo?state=&code=692842f838edcad616a957a2eac80945bb97cae1&scope=read,activity:read_all,profile:read_all
-
-	} else {
-		// Populated "code" from Strava redirect, use it to get actual tokens.
-		// TODO: Double check scope.
-
-		tokenURL := &url.URL{Scheme: "https", Host: STRAVA_URL, Path: "/oauth/token"}
-
-		form := url.Values{}
-		form.Add("client_id", app.ID)
-		form.Add("client_secret", app.Secret)
-		form.Add("grant_type", "authorization_code")
-		form.Add("code", q.Get("code"))
-
-		resp, err := http.PostForm(tokenURL.String(), form)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		_ = resp
-		log.Info(resp)
-
-		// decode
-		var tokenResp oAuth2Response
-		err = json.NewDecoder(resp.Body).Decode(&tokenResp)
-		if err != nil {
-			log.Error(err.Error())
-		}
-		if tokenResp.ExpiresIn < 60 {
-			log.Error("token will expire in less than a minute")
-		}
-		log.Infof("access token: %s", tokenResp.AccessToken)
-		log.Infof("refresh token: %s", tokenResp.RefreshToken)
-
-		// TODO: Use gorilla securecookie or similar.
-		http.SetCookie(w, &http.Cookie{
-			Name:     "access-token",
-			Value:    tokenResp.AccessToken,
-			HttpOnly: true,
-		})
-		http.SetCookie(w, &http.Cookie{
-			Name:     "refresh-token",
-			Value:    tokenResp.RefreshToken,
-			HttpOnly: true,
-		})
-
-		// TMP HACK
-		counts, err := GetActivities(tokenResp.AccessToken, from, to)
-		if err != nil {
-			log.Errorf("GetActivities: %v", err)
-			return
-		}
-
-		cfg := DefaultConfig
-		cfg.Counts = counts
-
-		err = charts.WriteHeatmap(cfg, w)
-		if err != nil {
-			log.Errorf("WriteHeatmap: %v", err)
-		}
+		// No "code" in URL means start fresh: redirect user to Strava for authentication.
+		http.Redirect(w, r, app.AuthInitialRedirectURL(r).String(), http.StatusTemporaryRedirect)
 		return
-
 	}
+
+	// Populated "code" from Strava redirect, use it to get actual tokens.
+	// TODO: Double check scope.
+	tokenResp, err := app.AuthRetrieveTokens(q.Get("code"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+	// TODO: Use gorilla securecookie or similar.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access-token",
+		Value:    tokenResp.AccessToken,
+		HttpOnly: true,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh-token",
+		Value:    tokenResp.RefreshToken,
+		HttpOnly: true,
+	})
+
+	// Back to main page with tokens in cookies.
+	http.Redirect(w, r, "..", http.StatusFound)
 }
 
 // apiCall wraps the ...
@@ -195,8 +192,7 @@ func apiCall(method, path string, headers, params map[string]string) (*http.Resp
 	req.URL.RawQuery = q.Encode()
 
 	// request - let caller check error and defer close
-	log.Info(req.URL.String())
-	log.Info(req.Header)
+	log.Infof("API %s %s", method, req.URL.String())
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return resp, err
@@ -239,9 +235,6 @@ func GetAccessToken(apikey string) (string, error) {
 	return authResp.AccessToken, nil
 }
 
-// Activities per response page, 200 is maximum in the API spec.
-const PER_PAGE = 100
-
 // GetActivities exhaustively in the after/before range.
 func GetActivities(token string, after, before time.Time) (map[string]int, error) {
 
@@ -252,7 +245,9 @@ func GetActivities(token string, after, before time.Time) (map[string]int, error
 		"Authorization": "Bearer " + token,
 	}
 
+	// Requests are paged since there is a limit on activities per response.
 	page := 0
+	const PER_PAGE = 100 // Activities per response page, 200 is maximum in the API spec.
 	for {
 		page++
 
@@ -287,10 +282,8 @@ func GetActivities(token string, after, before time.Time) (map[string]int, error
 
 		// Populate dict on form that charts expect.
 		for _, v := range activities {
-			// log.Debugf("%+v\n", v)
-
 			key := v.StartDate.Format("2006-01-02")
-			// Multiple activities on the same day.
+			// Could be multiple activities on the same day.
 			counts[key] += v.Seconds / 60
 		}
 		if len(activities) < PER_PAGE {
