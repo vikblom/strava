@@ -56,10 +56,6 @@ type AppClient struct {
 	Secret string
 }
 
-func (app *AppClient) WriteChart(w http.ResponseWriter, r *http.Request) {
-
-}
-
 func (app *AppClient) HandleChart(w http.ResponseWriter, r *http.Request) {
 
 	access, err := r.Cookie("access-token")
@@ -283,6 +279,10 @@ func GetActivities(token string, after, before time.Time) (map[string]int, error
 		// Populate dict on form that charts expect.
 		for _, v := range activities {
 			key := v.StartDate.Format("2006-01-02")
+			// Exclude outliers.
+			if v.Seconds > 60*60*24 {
+				continue
+			}
 			// Could be multiple activities on the same day.
 			counts[key] += v.Seconds / 60
 		}
