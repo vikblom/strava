@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -50,6 +51,10 @@ func main() {
 	http.HandleFunc("/chart.png", app.HandleChart)
 	http.HandleFunc("/auth", app.HandleAuth)
 	http.HandleFunc("/debug", handleDebug)
+
+	// net/http/pprof has both
+	// Trace -  runtime/trace
+	// Profile - runtime/pprof
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
